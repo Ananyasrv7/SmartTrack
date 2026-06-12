@@ -1,7 +1,8 @@
 import os
 from dotenv import load_dotenv
-from sqlalchemy import create_engine, Column, String, ForeignKey
+from sqlalchemy import create_engine, Column, String, ForeignKey, Integer, Boolean, DateTime
 from sqlalchemy.orm import sessionmaker, declarative_base
+from datetime import datetime
 
 load_dotenv()
 
@@ -43,6 +44,37 @@ class CompanyHRDB(Base):
     Company_Email = Column(String, unique=True, nullable=False)
     Password = Column(String, nullable=False)
 
+class EmployeeNotificationDB(Base):
+    __tablename__ = "employee_notifications"
+
+    Notif_ID = Column(Integer, primary_key=True, index=True)
+    Employee_ID = Column(String, ForeignKey("employees.Employee_ID"), nullable=False)
+    Type = Column(String)
+    Subject = Column(String)
+    Message = Column(String)
+    Status = Column(Boolean, default=True)
+    Sent_Time = Column(DateTime, default=datetime.utcnow)
+
+
+class CompanyNotificationDB(Base):
+    __tablename__ = "company_notifications"
+
+    Notif_ID = Column(Integer, primary_key=True, index=True)
+    Company_ID = Column(String, ForeignKey("companies.Company_ID"), nullable=False)
+    Type = Column(String)
+    Subject = Column(String)
+    Message = Column(String)
+    Status = Column(String, default="sent")
+    Sent_Time = Column(DateTime, default=datetime.utcnow)
+
+class AuditLogDB(Base):
+    __tablename__ = "audit_logs"
+
+    Audit_Log_ID = Column(String, primary_key=True)
+    Created_At = Column(DateTime, default=datetime.utcnow)
+    HR_ID = Column(String, ForeignKey("company_hr.HR_ID"), nullable=False)
+    Action_Type = Column(String, nullable=False)
+    Employee_ID = Column(String, ForeignKey("employees.Employee_ID"), nullable=False)
 
 # ---------- Create all tables ----------
 

@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException, Depends
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
-from database import get_db, EmployeeDB, CompanyDB, CompanyHRDB
+from database import get_db, EmployeeDB, CompanyDB, CompanyHRDB, EmployeeNotificationDB, CompanyNotificationDB, AuditLogDB
 
 app = FastAPI()
 
@@ -69,7 +69,23 @@ class HRLogin(BaseModel):
     Company_Email: EmailStr
     Password: str
 
+class EmployeeNotification(BaseModel):
+    Employee_ID: str
+    Type: str
+    Subject: str
+    Message: str
 
+
+class CompanyNotification(BaseModel):
+    Company_ID: str
+    Type: str
+    Subject: str
+    Message: str
+
+class AuditLog(BaseModel):
+    HR_ID: str
+    Action_Type: str
+    Employee_ID: str
 # ---------- ID generation helper ----------
 
 def generate_custom_id(name: str, type_char: str, db: Session, model_class, id_column) -> str:
@@ -82,6 +98,13 @@ def generate_custom_id(name: str, type_char: str, db: Session, model_class, id_c
     count = db.query(model_class).count()
     number = str(count + 1).zfill(3)
     return f"{prefix}{type_char}{number}"
+
+
+def generate_audit_log_id(db: Session) -> str:
+    """Generate an Audit Log ID in the format AUD000."""
+    count = db.query(AuditLogDB).count()
+    number = str(count + 1).zfill(3)
+    return f"AUD{number}"
 
 
 # ---------- Routes ----------
@@ -198,3 +221,105 @@ def hr_login(data: HRLogin, db: Session = Depends(get_db)):
     if hr:
         return {"message": "HR login successful", "HR_ID": hr.HR_ID, "Name": hr.Name}
     raise HTTPException(status_code=401, detail="Invalid company email or password")
+
+
+@app.post("/employee/notification")
+def send_employee_notification(data: EmployeeNotification, db: Session = Depends(get_db)):
+    employee = db.query(EmployeeDB).filter(EmployeeDB.Employee_ID == data.Employee_ID).first()
+    if not employee:
+        raise HTTPException(status_code=404, detail="Employee not found")
+
+    notification = EmployeeNotificationDB(
+        Employee_ID=data.Employee_ID,
+        Type=data.Type,
+        Subject=data.Subject,
+        Message=data.Message,
+        Status=True
+    )
+
+    db.add(notification)
+    db.commit()
+    db.refresh(notification)
+
+    return {
+        "message": "Notification sent to employee",
+        "notification_id": notification.Notif_ID
+    }
+
+
+@app.post("/company/notification")
+def send_company_notification(data: CompanyNotification, db: Session = Depends(get_db)):
+    company = db.query(CompanyDB).filter(CompanyDB.Company_ID == data.Company_ID).first()
+    if not company:
+        raise HTTPException(status_code=404, detail="Company not found")
+
+    notification = CompanyNotificationDB(
+        Company_ID=data.Company_ID,
+        Type=data.Type,
+        Subject=data.Subject,
+        Message=data.Message,
+        Status="sent"
+    )
+
+    db.add(notification)
+    db.commit()
+    db.refresh(notification)
+
+    return {
+        "message": "Notification sent to company",
+        "notification_id": notification.Notif_ID
+    }
+
+
+@app.get("/employee/{employee_id}/notifications")
+def get_employee_notifications(employee_id: str, db: Session = Depends(get_db)):
+    notifications = db.query(EmployeeNotificationDB).filter(
+        EmployeeNotificationDB.Employee_ID == employee_id
+    ).all()
+
+    return notifications
+
+
+@app.get("/company/{company_id}/notifications")
+def get_company_notifications(company_id: str, db: Session = Depends(get_db)):
+    notifications = db.query(CompanyNotificationDB).filter(
+        CompanyNotificationDB.Company_ID == company_id
+    ).all()
+
+    return notifications
+
+@app.post("/audit-log")
+def create_audit_log(data: AuditLog, db: Session = Depends(get_db)):
+    hr = db.query(CompanyHRDB).filter(CompanyHRDB.HR_ID == data.HR_ID).first()
+    if not hr:
+        raise HTTPException(status_code=404, detail="HR not found")
+
+    employee = db.query(EmployeeDB).filter(EmployeeDB.Employee_ID == data.Employee_ID).first()
+    if not employee:
+        raise HTTPException(status_code=404, detail="Employee not found")
+
+    log_id = generate_audit_log_id(db)
+
+    new_log = AuditLogDB(
+        Audit_Log_ID=log_id,
+        HR_ID=data.HR_ID,
+        Action_Type=data.Action_Type,
+        Employee_ID=data.Employee_ID
+    )
+    db.add(new_log)
+    db.commit()
+    db.refresh(new_log)
+
+    return {"message": "Audit log created", "Audit_Log_ID": log_id}
+
+
+@app.get("/audit-logs/hr/{hr_id}")
+def get_audit_logs_by_hr(hr_id: str, db: Session = Depends(get_db)):
+    logs = db.query(AuditLogDB).filter(AuditLogDB.HR_ID == hr_id).all()
+    return logs
+
+
+@app.get("/audit-logs/employee/{employee_id}")
+def get_audit_logs_by_employee(employee_id: str, db: Session = Depends(get_db)):
+    logs = db.query(AuditLogDB).filter(AuditLogDB.Employee_ID == employee_id).all()
+    return logs
